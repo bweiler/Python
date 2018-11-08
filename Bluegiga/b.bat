@@ -1,0 +1,1 @@
+copy build\lib.win-amd64-3.7\bluetooth.cp37-win_amd64.pyd
