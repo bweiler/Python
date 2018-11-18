@@ -7,6 +7,7 @@
 #include <Python.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <time.h>
 #include <stdio.h>
 #include <ctype.h>
 #include <string.h>
@@ -117,6 +118,7 @@ void change_state(states new_state);
 int read_message(int timeout_ms);
 void print_bdaddr(bd_addr bdaddr);
 void ble_evt_connection_status(const struct ble_msg_connection_status_evt_t *msg);
+void delay(int milliseconds);
 
 DWORD   dwThreadIdArray;
 HANDLE  hThread; 
@@ -133,12 +135,16 @@ static PyObject *exitLibrary(PyObject *self, PyObject *args );
 static PyObject *sendCMD(PyObject *self, PyObject *args) 
 {
     const char cmd;
+	static uint8 cmd_send; //must persist
 	int sts;
 
     if (!PyArg_ParseTuple(args, "b", &cmd))
         return NULL;
+	
+	cmd_send = cmd;
 	//printf("Write %d %d %02x\n",connection_handle,skoobot_handle_cmd,cmd);
-	ble_cmd_attclient_write_command(connection_handle,skoobot_handle_cmd,1,&cmd);
+	//ble_cmd_attclient_write_command(connection_handle,skoobot_handle_cmd,1,&cmd);
+	ble_cmd_attclient_attribute_write(connection_handle,skoobot_handle_cmd,1,&cmd_send);
 	
 	sts = cmd;
 
@@ -533,7 +539,8 @@ void ble_evt_attclient_group_found(const struct ble_msg_attclient_group_found_ev
 
 void ble_evt_attclient_procedure_completed(const struct ble_msg_attclient_procedure_completed_evt_t *msg)
 {
- 
+	static int next_notify = 0;
+	
     //printf("Finding services and attributes\n");
     if (state == state_finding_services) {
         // skoobot service not found
@@ -556,21 +563,41 @@ void ble_evt_attclient_procedure_completed(const struct ble_msg_attclient_proced
         }
         // Enable notifications
         else {
-            enable_notifications(msg->connection, skoobot_handle_data);
-	
-            enable_notifications(msg->connection, skoobot_handle_byte2);
-            enable_notifications(msg->connection, skoobot_handle_byte128);
+			switch(next_notify)
+			{
+				case 0:
+					enable_notifications(msg->connection, skoobot_handle_data);
+					break;
+				case 1:
+					if (skoobot_handle_byte2 !=0)
+						enable_notifications(msg->connection, skoobot_handle_byte2);
+					else
+						printf("Error skoobot_handle_byte2 == 0");
+					break;
+				case 2:
+					if (skoobot_handle_byte128 !=0)
+						enable_notifications(msg->connection, skoobot_handle_byte128);
+					else
+						printf("Error skoobot_handle_byte128 == 0");
+					break;
+				case 3:
+					change_state(state_listening_measurements);
+					PyObject *arglist;
+					PyObject *result;
+					PyGILState_STATE gstate;
+					int val = 1;
+					
+					gstate = PyGILState_Ensure();
+					arglist = Py_BuildValue("(i)", val);
+					result = PyEval_CallObject(op_callback, arglist);
+					Py_DECREF(arglist);
+					PyGILState_Release(gstate);
+					break;
+				default:
+					break;
+			}
+			++next_notify;
 			
-			PyObject *arglist;
-			PyObject *result;
-			PyGILState_STATE gstate;
-			int val = 1;
-			
-			gstate = PyGILState_Ensure();
-			arglist = Py_BuildValue("(i)", val);
-			result = PyEval_CallObject(op_callback, arglist);
-			Py_DECREF(arglist);
-			PyGILState_Release(gstate);
         }
     }
 }
@@ -608,13 +635,15 @@ void ble_evt_attclient_find_information_found(const struct ble_msg_attclient_fin
 
 void ble_evt_attclient_attribute_value(const struct ble_msg_attclient_attribute_value_evt_t *msg)
 {
-    PyObject *arglist;
-    PyObject *result;
+    PyObject *arglist = NULL;
+    PyObject *result = NULL;
 	PyGILState_STATE gstate;
-	uint8 data[20];
-	int val = 0, i;
+	char data[20];
+	const char *p;
+	int i;
+	uint32 val = 0;
 	
-    printf("len = %d\n",msg->value.len);
+    //printf("len = %d\n",msg->value.len);
 	if (msg->value.len < 1) {
         printf("Not enough fields in value");
         change_state(state_finish);
@@ -625,28 +654,31 @@ void ble_evt_attclient_attribute_value(const struct ble_msg_attclient_attribute_
 	{		
 		for(i=0;(i<20);i++)	
 			data[i] = msg->value.data[i];
-  
+		p = data;
 		gstate = PyGILState_Ensure();
-		arglist = Py_BuildValue("(s)", data);
-		result = PyEval_CallObject(data_callback, arglist);
-		Py_DECREF(arglist);
+		arglist = Py_BuildValue("(y#)", p, 20);
+		if (arglist != NULL)
+		{
+			result = PyEval_CallObject(data_callback, arglist);
+			Py_DECREF(arglist);
+		}
+		else
+		{
+			printf("arglist returned null\n");
+		}
 		PyGILState_Release(gstate);
+
 		return;
 	}
     if (msg->value.len == 1) 
 	{
 		val = msg->value.data[0];
-		if (val < 0)
-			val += 256;
 	}
     if (msg->value.len == 2)
 	{		
-		printf("Ambient %d %d\n",msg->value.data[0],msg->value.data[1]);
-		val = msg->value.data[1];
-		if (val < 0)
-			val += 256;
-		val <<=8;
-		val += msg->value.data[0];
+		data[0] = msg->value.data[0];
+		data[1] = msg->value.data[1];
+		val = data[0]<<8|data[1];
     }
   
 	gstate = PyGILState_Ensure();
@@ -666,3 +698,13 @@ void ble_evt_connection_disconnected(const struct ble_msg_connection_disconnecte
     //ble_cmd_gap_connect_direct(&connect_addr, gap_address_type_public, 10, 40, 4000,0);
 }
 
+void delay(int milliseconds)
+{
+    long pause;
+    clock_t now,then;
+
+    pause = milliseconds*(CLOCKS_PER_SEC/1000);
+    now = then = clock();
+    while( (now-then) < pause )
+        now = clock();
+}

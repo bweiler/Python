@@ -1,6 +1,8 @@
 import bluetooth
 import time
-
+import simpleaudio as sa
+import numpy as np
+import matplotlib.pyplot as plt
 
 MOTORS_RIGHT_30 	= 0x08
 MOTORS_LEFT_30      = 0x09
@@ -60,6 +62,31 @@ def ambient_measure(b):
          break  
    return return_data
    
+def get_sound(b):
+   global data_ready, return_data
+   data_ready = 0
+   b.sendCMD(RECORD_SOUND);   
+   file = open("testfile.wav","w+b")
+   cnt = 0
+   while True:
+      if data_ready == 1:
+         data_ready = 0
+         if isinstance(return_data, int):
+             if return_data == 127:
+                break
+         else:
+             if len(return_data) == 20:
+                file.write(return_data);
+                cnt += 1
+         if cnt % 100 == 0:
+             print('cnt is ',cnt)
+   file.close()
+   data = np.memmap("testfile.wav", dtype='int16', mode='r')
+   plt.ylim(-32000.0, 32000.0);
+   x = np.linspace(0, cnt*10, cnt*10)
+   plt.plot(x, data)
+   plt.show()
+
 
 def blue_callback(lib_flag):
     global done_op_flag
@@ -68,7 +95,7 @@ def blue_callback(lib_flag):
 
 def data_callback(data):
     global data_ready, return_data
-    return_data  = data
+    return_data = data
     data_ready = 1
 
 b = bluetooth
@@ -81,19 +108,21 @@ if v == 0:
    while True:
       time.sleep(0.020)
       if done_op_flag == 1:
-         break  
-   print('Distance = ',ambient_measure(b))
-   b.sendCMD(MOTORS_RIGHT_30)
-   time.sleep(0.1)
-   b.sendCMD(MOTORS_STOP);
-   time.sleep(2)
+         break 
+   print('Get sound')		 
+   #print('Ambient = ',ambient_measure(b))
+   #print('Ambient = ',ambient_measure(b))
+   #b.sendCMD(MOTORS_RIGHT_30)
+   #time.sleep(0.1)
+   #b.sendCMD(MOTORS_STOP);
+   get_sound(b)
    b.closeConnection()
    print('Called close')
    b.exitLibrary()
    print('Exit')
   
 else:
-   print('Open returned ',v)
+   print('Error: Open returned',v)
 
 
 
