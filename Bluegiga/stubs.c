@@ -8,8 +8,11 @@
  ****************************************************************************/
 
 #include "cmd_def.h"
+#include "stdio.h"
+
 void ble_default(const void*v)
 {
+	printf("Default");
 }
 
 void ble_rsp_attributes_send(const struct ble_msg_attributes_send_rsp_t *msg)
@@ -52,6 +55,7 @@ void ble_evt_system_protocol_error(const struct ble_msg_system_protocol_error_ev
 
 void ble_rsp_system_reset(const void* nul)
 {
+			//printf("reset");
 }
 
 void ble_rsp_system_hello(const void* nul)
@@ -64,6 +68,7 @@ void ble_rsp_system_address_get(const struct ble_msg_system_address_get_rsp_t *m
 
 void ble_rsp_system_reg_write(const struct ble_msg_system_reg_write_rsp_t *msg)
 {
+	//printf("Reg write");
 }
 
 void ble_rsp_system_reg_read(const struct ble_msg_system_reg_read_rsp_t *msg)
@@ -76,6 +81,7 @@ void ble_rsp_system_get_counters(const struct ble_msg_system_get_counters_rsp_t 
 
 void ble_rsp_system_get_connections(const struct ble_msg_system_get_connections_rsp_t *msg)
 {
+	//printf("Get connections");
 }
 
 void ble_rsp_system_read_memory(const struct ble_msg_system_read_memory_rsp_t *msg)
@@ -144,6 +150,7 @@ void ble_rsp_flash_write_data(const struct ble_msg_flash_write_data_rsp_t * msg)
 
 void ble_rsp_attributes_write(const struct ble_msg_attributes_write_rsp_t *msg)
 {
+	//printf("Write rsp\n");
 }
 
 void ble_rsp_attributes_read(const struct ble_msg_attributes_read_rsp_t *msg)
@@ -164,6 +171,7 @@ void ble_rsp_attributes_user_write_response(const void* nul)
 
 void ble_rsp_connection_disconnect(const struct ble_msg_connection_disconnect_rsp_t *msg)
 {
+	//printf("Disconnect Rsp\n");
 }
 
 void ble_rsp_connection_get_rssi(const struct ble_msg_connection_get_rssi_rsp_t *msg)
@@ -172,6 +180,7 @@ void ble_rsp_connection_get_rssi(const struct ble_msg_connection_get_rssi_rsp_t 
 
 void ble_rsp_connection_update(const struct ble_msg_connection_update_rsp_t *msg)
 {
+	//printf("Update rsp\n");
 }
 
 void ble_rsp_connection_version_update(const struct ble_msg_connection_version_update_rsp_t *msg)
@@ -192,6 +201,7 @@ void ble_rsp_connection_features_get(const struct ble_msg_connection_features_ge
 
 void ble_rsp_connection_get_status(const struct ble_msg_connection_get_status_rsp_t *msg)
 {
+	printf("Stat");
 }
 
 void ble_rsp_connection_raw_tx(const struct ble_msg_connection_raw_tx_rsp_t *msg)
@@ -212,6 +222,7 @@ void ble_rsp_attclient_read_by_group_type(const struct ble_msg_attclient_read_by
 
 void ble_rsp_attclient_read_by_type(const struct ble_msg_attclient_read_by_type_rsp_t *msg)
 {
+	//printf("read by type\n");
 }
 
 void ble_rsp_attclient_find_information(const struct ble_msg_attclient_find_information_rsp_t *msg)
@@ -228,10 +239,12 @@ void ble_rsp_attclient_attribute_write(const struct ble_msg_attclient_attribute_
 
 void ble_rsp_attclient_write_command(const struct ble_msg_attclient_write_command_rsp_t *msg)
 {
+	//printf("Write rsp\n");
 }
 
 void ble_rsp_attclient_indicate_confirm(const struct ble_msg_attclient_indicate_confirm_rsp_t *msg)
 {
+
 }
 
 void ble_rsp_attclient_read_long(const struct ble_msg_attclient_read_long_rsp_t *msg)
@@ -292,6 +305,7 @@ void ble_rsp_gap_set_privacy_flags(const void* nul)
 
 void ble_rsp_gap_set_mode(const struct ble_msg_gap_set_mode_rsp_t *msg)
 {
+	printf("Mode");
 }
 
 void ble_rsp_gap_discover(const struct ble_msg_gap_discover_rsp_t *msg)
@@ -300,6 +314,7 @@ void ble_rsp_gap_discover(const struct ble_msg_gap_discover_rsp_t *msg)
 
 void ble_rsp_gap_connect_direct(const struct ble_msg_gap_connect_direct_rsp_t *msg)
 {
+	//printf("Direct Connect res (%d) handle (%d)\n",msg->result,msg->connection_handle);
 }
 
 void ble_rsp_gap_end_procedure(const struct ble_msg_gap_end_procedure_rsp_t *msg)
@@ -332,6 +347,7 @@ void ble_rsp_gap_set_directed_connectable_mode(const struct ble_msg_gap_set_dire
 
 void ble_rsp_gap_set_initiating_con_parameters(const struct ble_msg_gap_set_initiating_con_parameters_rsp_t *msg)
 {
+	printf("Init");
 }
 
 void ble_rsp_gap_set_nonresolvable_address(const struct ble_msg_gap_set_nonresolvable_address_rsp_t *msg)

@@ -1,20 +1,26 @@
-README
+README.txt for Bluegiga Bluetooth Python library
 
-This is how to compile the Python library to use the Bluegiga BLE USB Dongle, Part# BLED112.
+Python library to use the Bluegiga BLE USB Dongle, Part# BLED112.
 You can get the Dongle on Amazon or Digikey.
 
-This is compiled on Windows and Linux by typing: "python setup.py build"
+You don't have to compile it unless it doesn't work on your system or you want to change it.
 
-On Windows, Python and the mingw64 gcc compiler have to be installed. You can also just
-use the library as is, without having to compile it.
+Windows: bluetooth.cp37-win_amd64.pyd
+Raspberry Pi:
 
-The compiler outputs the library at:
+To compile type: "python setup.py build"
 
+Windows compile installs:
+1) Python
+2) mingw64 gcc compiler
+3) create a file called distutils.cfg in this location: (your user home directory)\AppData\Local\Programs\Python\Python37\Lib\distutils
+4) Edit the file contents (otherwise it defaults to Visual Studio): 
+[build]
+compiler=mingw32
+
+Disutils outputs the library at:
 ./Bluegiga/build/lib.win-amd64-3.7/bluetooth.cp37-win_amd64.pyd
 
-To use it in Python, it should be in the directory you launch Python from, and can be used, for example:
-
-import bluetooth
-
-b = bluetooth
-b.sendCMD(0x10)
+Raspberry Pi compile installs:
+1) Python
+2) 

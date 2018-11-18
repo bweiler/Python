@@ -3,7 +3,7 @@
 // The intent is to provide a Bluetooth Python module for Skoobot Python apps 
 //
 // This is free software distributed under the terms of the MIT license reproduced below.
-
+#include <windows.h>
 #include <Python.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -97,23 +97,55 @@ const char *state_names[state_last] = {
 
 #define SKOOBOT_MEASUREMENT_CONFIG_UUID 0x2902
 
-uint8 primary_service_uuid[] = {0x00, 0x28};
+uint8 group_uuid[] = { 0x00, 0x28 };
+uint8 type_uuid[] = { 0x03, 0x28 };
+uint8 primary_service_uuid[] = SKOOBOT_UUID_BASE;
+uint16 connection_handle = 0;
 
 uint16 skoobot_handle_start = 0,
        skoobot_handle_end = 0,
-       skoobot_handle_measurement = 0,
-       skoobot_handle_configuration = 0;
-
+       skoobot_handle_cmd = 0,
+       skoobot_handle_data = 0,       
+       skoobot_handle_byte2 = 0,
+       skoobot_handle_byte4 = 0,
+       skoobot_handle_byte128 = 0;		//maybe actually just 20 bytes
+	   
 bd_addr connect_addr;
 
 void output(uint8 len1, uint8* data1, uint16 len2, uint8* data2);
 void change_state(states new_state);
 int read_message(int timeout_ms);
+void print_bdaddr(bd_addr bdaddr);
+void ble_evt_connection_status(const struct ble_msg_connection_status_evt_t *msg);
 
+DWORD   dwThreadIdArray;
+HANDLE  hThread; 
+DWORD WINAPI BLED112_Pump( LPVOID lpParam );
+
+static PyObject *op_callback = NULL;
+static PyObject *data_callback = NULL;
 static PyObject *sendCMD(PyObject *self, PyObject *args );
-static PyObject *openConnection(PyObject *self, PyObject *args );
+static PyObject *openConnection(PyObject *self, PyObject *args);
+static PyObject *send4Byte(PyObject *self, PyObject *args );
+static PyObject *closeConnection(PyObject *self, PyObject *args );
+static PyObject *exitLibrary(PyObject *self, PyObject *args );
 
 static PyObject *sendCMD(PyObject *self, PyObject *args) 
+{
+    const char cmd;
+	int sts;
+
+    if (!PyArg_ParseTuple(args, "b", &cmd))
+        return NULL;
+	//printf("Write %d %d %02x\n",connection_handle,skoobot_handle_cmd,cmd);
+	ble_cmd_attclient_write_command(connection_handle,skoobot_handle_cmd,1,&cmd);
+	
+	sts = cmd;
+
+	return PyLong_FromLong(sts);;
+}
+
+static PyObject *send4Byte(PyObject *self, PyObject *args) 
 {
     const char cmd;
 	int sts;
@@ -125,28 +157,94 @@ static PyObject *sendCMD(PyObject *self, PyObject *args)
 	return PyLong_FromLong(sts);;
 }
 
+static PyObject *closeConnection(PyObject *self, PyObject *args) 
+{
+	int sts;
+
+    ble_cmd_connection_disconnect(connection_handle);
+			
+	sts = 0;
+
+	return PyLong_FromLong(sts);;
+}
+
+static PyObject *exitLibrary(PyObject *self, PyObject *args) 
+{
+	int sts;
+
+	change_state(state_finish);
+	
+	//if (!PyArg_ParseTuple(args, "b", &cmd))
+      //  return NULL;
+	sts = 0;
+
+	return PyLong_FromLong(sts);;
+}
+	
+
 static PyObject *openConnection(PyObject *self, PyObject *args) 
 {
-	char *uart_port;
+	char *uart_port, *arg_action, *arg_addr;
 	int sts, i;
+    PyObject *temp0, *temp1;
+	unsigned short addr[6];
 
-    if (!PyArg_ParseTuple(args, "s", &uart_port))
-        return NULL;
-
-	printf("COM %s\n",uart_port);
+    if (PyArg_ParseTuple(args, "sssOO:set_callback", &uart_port,&arg_action,&arg_addr,&temp0,&temp1))
+	{
+        if (!PyCallable_Check(temp0) || !PyCallable_Check(temp1)) {
+			sts = 1;
+			return PyLong_FromLong(sts);
+        }
+        Py_XINCREF(temp0);         /* Add a reference to new callback */
+        Py_XDECREF(op_callback);  /* Dispose of previous callback */
+        op_callback = temp0;       /* Remember new callback */
+        Py_XINCREF(temp1);         /* Add a reference to new callback */
+        Py_XDECREF(data_callback);  /* Dispose of previous callback */
+        data_callback = temp1;       /* Remember new callback */
+	}
+	else
+	{
+		sts = 3;
+		//Exit back to Python, message pump is running
+		return PyLong_FromLong(sts);
 	
-	action = action_info;
-	action = action_connect;
+	}
+	printf("%s\n",uart_port);
+	
+	if (strcmp("scan",arg_action) == 0)
+	{
+		action = action_scan;
+	}
+	if (strcmp("info",arg_action) == 0)
+	{
+		action = action_info;
+	}
+	if (strcmp("connect",arg_action) == 0)
+	{
+		action = action_connect;
+	
+		if (sscanf(arg_addr,
+			"%02hx:%02hx:%02hx:%02hx:%02hx:%02hx",
+			&addr[5],
+			&addr[4],
+			&addr[3],
+			&addr[2],
+			&addr[1],
+			&addr[0]) == 6) {
 
-	for (i = 0; i < 6; i++) {
-		connect_addr.addr[i] = addr[i];
+			for (i = 0; i < 6; i++) {
+				connect_addr.addr[i] = addr[i];
+			}
+		}
+		action = action_connect;
+		print_bdaddr(connect_addr);
 	}
 	
     bglib_output = output;
 
     if (uart_open(uart_port)) {
         printf("ERROR: Unable to open serial port\n");
-        sts = 1;
+        sts = 2;
 		return PyLong_FromLong(sts);
     }
 
@@ -157,8 +255,7 @@ static PyObject *openConnection(PyObject *self, PyObject *args)
         usleep(500000); // 0.5s
     } while (uart_open(uart_port));
 
-	action = action_scan;
-    // Execute action
+	// Execute action
     if (action == action_scan) {
         ble_cmd_gap_discover(gap_discover_observation);
     }
@@ -168,24 +265,54 @@ static PyObject *openConnection(PyObject *self, PyObject *args)
     else if (action == action_connect) {
         printf("Trying to connect\n");
         change_state(state_connecting);
-        ble_cmd_gap_connect_direct(&connect_addr, gap_address_type_public, 40, 60, 100,0);
+        ble_cmd_gap_connect_direct(&connect_addr, gap_address_type_random, 60, 76, 100, 1);
     }
-
-    // Message loop
-    while (state != state_finish) {
-        if (read_message(UART_TIMEOUT) > 0) break;
-    }
-
-    uart_close();
+			
+    hThread = CreateThread( 
+            NULL,                   // default security attributes
+            0,                      // use default stack size  
+            BLED112_Pump,       // thread function name
+            NULL,          // argument to thread function 
+            0,                      // use default creation flags 
+            &dwThreadIdArray);   // returns the thread identifier 
 
 	sts = 0;
 
+	//Exit back to Python, message pump is running
 	return PyLong_FromLong(sts);
+}
+
+DWORD WINAPI BLED112_Pump( LPVOID lpParam ) 
+{ 
+	
+    // Message loop
+    while (state != state_finish) {
+		if (read_message(UART_TIMEOUT) > 0) break;
+    }
+
+    uart_close();
+	printf("C Library closed\n");
+	
+	PyObject *arglist;
+	PyObject *result;
+	PyGILState_STATE gstate;
+	int val = 1;
+	
+	gstate = PyGILState_Ensure();
+	arglist = Py_BuildValue("(i)", val);
+	result = PyEval_CallObject(op_callback, arglist);
+	Py_DECREF(arglist);
+	PyGILState_Release(gstate);
+
+	return 0;
 }
 
 static PyMethodDef module_methods[] = {
    { "sendCMD", (PyCFunction)sendCMD, METH_VARARGS, NULL },
-   { "openConnection", (PyCFunction)openConnection, METH_VARARGS, NULL },
+   { "openConnection", (PyCFunction)openConnection, METH_VARARGS, NULL },   
+   { "closeConnection", (PyCFunction)closeConnection, METH_VARARGS, NULL },   
+   { "send4Byte", (PyCFunction)send4Byte, METH_VARARGS, NULL },
+   { "exitLibrary",(PyCFunction)exitLibrary, METH_VARARGS, NULL },
    { NULL, NULL, 0, NULL }
 };
 
@@ -234,7 +361,7 @@ int cmp_bdaddr(bd_addr first, bd_addr second)
 
 void print_bdaddr(bd_addr bdaddr)
 {
-    printf("%02x:%02x:%02x:%02x:%02x:%02x",
+    printf("%02x:%02x:%02x:%02x:%02x:%02x\n",
             bdaddr.addr[5],
             bdaddr.addr[4],
             bdaddr.addr[3],
@@ -303,10 +430,11 @@ int read_message(int timeout_ms)
     return 0;
 }
 
-void enable_indications(uint8 connection_handle, uint16 client_configuration_handle)
+void enable_notifications(uint8 con_handle, uint16 client_configuration_handle)
 {
-    uint8 configuration[] = {0x02, 0x00}; // enable indications
-    ble_cmd_attclient_attribute_write(connection_handle, skoobot_handle_configuration, 2, &configuration);
+    uint8 configuration[] = {0x01, 0x00}; // enable notifications
+	printf("Enable notify %d\n",client_configuration_handle+1);
+    ble_cmd_attclient_attribute_write(con_handle, client_configuration_handle+1, 2, &configuration);
 }
 
 void ble_rsp_system_get_info(const struct ble_msg_system_get_info_rsp_t *msg)
@@ -353,7 +481,7 @@ void ble_evt_gap_scan_response(const struct ble_msg_gap_scan_response_evt_t *msg
     }
 
     print_bdaddr(msg->sender);
-    printf(" RSSI:%u", msg->rssi);
+    printf(" RSSI:%d", msg->rssi);
 
     printf(" Name:");
     if (name) printf("%s", name);
@@ -365,38 +493,48 @@ void ble_evt_gap_scan_response(const struct ble_msg_gap_scan_response_evt_t *msg
 
 void ble_evt_connection_status(const struct ble_msg_connection_status_evt_t *msg)
 {
-    // New connection
+	
+	// New connection
     if (msg->flags & connection_connected) {
         change_state(state_connected);
         printf("Connected\n");
-
-        // Handle for Temperature Measurement configuration already known
-        if (skoobot_handle_configuration) {
-            change_state(state_listening_measurements);
-            enable_indications(msg->connection, skoobot_handle_configuration);
-        }
-        // Find primary services
-        else {
-            change_state(state_finding_services);
-            ble_cmd_attclient_read_by_group_type(msg->connection, FIRST_HANDLE, LAST_HANDLE, 2, primary_service_uuid);
-        }
-    }
+		connection_handle = msg->connection;
+		if (skoobot_handle_cmd == 0)
+		{
+			change_state(state_finding_services);
+			ble_cmd_attclient_read_by_group_type(msg->connection, FIRST_HANDLE, LAST_HANDLE, 2, group_uuid);
+		}
+	}
+	//printf("Connection status %d\n",msg->flags);
 }
 
 void ble_evt_attclient_group_found(const struct ble_msg_attclient_group_found_evt_t *msg)
 {
+	//uint16 uuid;
+	int found_skoobot_svc;
+	
+	found_skoobot_svc = 0;
+	//printf("uuid len is %d\n",msg->uuid.len);
     if (msg->uuid.len == 0) return;
-    uint16 uuid = (msg->uuid.data[1] << 8) | msg->uuid.data[0];
-
+	//if (msg->uuid.len == 2)
+		//uuid = (msg->uuid.data[7] << 8) | msg->uuid.data[6];
+	if (msg->uuid.len == 16)
+	{
+		found_skoobot_svc = 1;
+	}
+	
     // First skoobot service found
-    if (state == state_finding_services && uuid == SKOOBOT_SERVICE_UUID && skoobot_handle_start == 0) {
+    if (state == state_finding_services && found_skoobot_svc == 1 && skoobot_handle_start == 0) {
         skoobot_handle_start = msg->start;
         skoobot_handle_end = msg->end;
+		//printf("start %d end %d\n",skoobot_handle_start,skoobot_handle_end);
     }
 }
 
 void ble_evt_attclient_procedure_completed(const struct ble_msg_attclient_procedure_completed_evt_t *msg)
 {
+ 
+    //printf("Finding services and attributes\n");
     if (state == state_finding_services) {
         // skoobot service not found
         if (skoobot_handle_start == 0) {
@@ -407,56 +545,124 @@ void ble_evt_attclient_procedure_completed(const struct ble_msg_attclient_proced
         else {
             change_state(state_finding_attributes);
             ble_cmd_attclient_find_information(msg->connection, skoobot_handle_start, skoobot_handle_end);
+			//ble_cmd_attclient_read_by_type(msg->connection, skoobot_handle_start, skoobot_handle_end, 2, type_uuid);
         }
     }
     else if (state == state_finding_attributes) {
         // Client characteristic configuration not found
-        if (skoobot_handle_configuration == 0) {
+        if (skoobot_handle_data == 0) {
             printf("No Client Characteristic Configuration found for Skoobot service\n");
             change_state(state_finish);
         }
         // Enable notifications
         else {
-            change_state(state_listening_measurements);
-            enable_indications(msg->connection, skoobot_handle_configuration);
+            enable_notifications(msg->connection, skoobot_handle_data);
+	
+            enable_notifications(msg->connection, skoobot_handle_byte2);
+            enable_notifications(msg->connection, skoobot_handle_byte128);
+			
+			PyObject *arglist;
+			PyObject *result;
+			PyGILState_STATE gstate;
+			int val = 1;
+			
+			gstate = PyGILState_Ensure();
+			arglist = Py_BuildValue("(i)", val);
+			result = PyEval_CallObject(op_callback, arglist);
+			Py_DECREF(arglist);
+			PyGILState_Release(gstate);
         }
     }
 }
-
+	   
 void ble_evt_attclient_find_information_found(const struct ble_msg_attclient_find_information_found_evt_t *msg)
 {
-    if (msg->uuid.len == 2) {
-        uint16 uuid = (msg->uuid.data[1] << 8) | msg->uuid.data[0];
-
+	uint16 uuid = 0;
+	//if (msg->uuid.len == 2) 
+	//{
+        //uint16 uuid = (msg->uuid.data[1] << 8) | msg->uuid.data[0];
+		//printf("found uuid len 2 %x\n",uuid);
+	//}	
+	if (msg->uuid.len == 16)
+	{	
+        uuid = (msg->uuid.data[13] << 8) | msg->uuid.data[12];
+		//printf("found uuid len 16 %x\n",uuid);
+		
         if (uuid == SKOOBOT_COMMAND_UUID) {
-            skoobot_handle_measurement = msg->chrhandle;
-        }
+            skoobot_handle_cmd = msg->chrhandle;
+	      }
         else if (uuid == SKOOBOT_DATA_UUID) {
-            skoobot_handle_configuration = msg->chrhandle;
+            skoobot_handle_data = msg->chrhandle;
+        }
+        else if (uuid == SKOOBOT_BYTE2_UUID) {
+            skoobot_handle_byte2 = msg->chrhandle;
+        }
+        else if (uuid == SKOOBOT_BYTE4_UUID) {
+            skoobot_handle_byte4 = msg->chrhandle;
+        }
+        else if (uuid == SKOOBOT_BYTE128_UUID) {
+            skoobot_handle_byte128 = msg->chrhandle;
         }
     }
 }
 
 void ble_evt_attclient_attribute_value(const struct ble_msg_attclient_attribute_value_evt_t *msg)
 {
-    if (msg->value.len < 1) {
+    PyObject *arglist;
+    PyObject *result;
+	PyGILState_STATE gstate;
+	uint8 data[20];
+	int val = 0, i;
+	
+    printf("len = %d\n",msg->value.len);
+	if (msg->value.len < 1) {
         printf("Not enough fields in value");
         change_state(state_finish);
+		return;
     }
 
-    uint8 data = msg->value.data[0];
-    //msg->value.data[4];
-    //(msg->value.data[3] << 16) | (msg->value.data[2] << 8) | msg->value.data[1];
-
+	if (msg->value.len == 20)
+	{		
+		for(i=0;(i<20);i++)	
+			data[i] = msg->value.data[i];
   
-    printf("Data is %u\n",data);
+		gstate = PyGILState_Ensure();
+		arglist = Py_BuildValue("(s)", data);
+		result = PyEval_CallObject(data_callback, arglist);
+		Py_DECREF(arglist);
+		PyGILState_Release(gstate);
+		return;
+	}
+    if (msg->value.len == 1) 
+	{
+		val = msg->value.data[0];
+		if (val < 0)
+			val += 256;
+	}
+    if (msg->value.len == 2)
+	{		
+		printf("Ambient %d %d\n",msg->value.data[0],msg->value.data[1]);
+		val = msg->value.data[1];
+		if (val < 0)
+			val += 256;
+		val <<=8;
+		val += msg->value.data[0];
+    }
+  
+	gstate = PyGILState_Ensure();
+    arglist = Py_BuildValue("(i)", val);
+    result = PyEval_CallObject(data_callback, arglist);
+    Py_DECREF(arglist);
+	PyGILState_Release(gstate);
+
+	return;
 }
 
 void ble_evt_connection_disconnected(const struct ble_msg_connection_disconnected_evt_t *msg)
 {
     change_state(state_disconnected);
-    printf("Connection terminated, trying to reconnect\n");
-    change_state(state_connecting);
-    ble_cmd_gap_connect_direct(&connect_addr, gap_address_type_public, 40, 60, 100,0);
+    printf("Disconnected\n");
+    //change_state(state_connecting);
+    //ble_cmd_gap_connect_direct(&connect_addr, gap_address_type_public, 10, 40, 4000,0);
 }
 
