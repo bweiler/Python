@@ -1,5 +1,8 @@
 README
 
+Need: Adafruit Feather nRF52 mRF52832, micro USB cable, Python installed
+So far tested on Windows.
+
 test_ada.py - python file for communicating over the serial port to the Adafruit Feather nRF52
 
 .\AdafruitFeatherCentral - directory that has Adafruit Feather Arduino code for talking to Skoobot
