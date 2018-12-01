@@ -101,7 +101,7 @@ def data_callback(data):
 b = bluetooth
 
 print('Open connection, start receieve thread')
-v = b.openConnection(comport,action,addr1,blue_callback,data_callback)
+v = b.openConnection(comport,action,addr0,blue_callback,data_callback)
 
 if v == 0:
    done_op_flag = 0
@@ -109,13 +109,22 @@ if v == 0:
       time.sleep(0.020)
       if done_op_flag == 1:
          break 
-   print('Get sound')		 
+   #print('Ambient')		 
    #print('Ambient = ',ambient_measure(b))
+   #print('Ambient')		 
    #print('Ambient = ',ambient_measure(b))
-   #b.sendCMD(MOTORS_RIGHT_30)
-   #time.sleep(0.1)
-   #b.sendCMD(MOTORS_STOP);
-   get_sound(b)
+   #print('Right .3')		 
+   b.sendCMD(MOTORS_RIGHT)
+   time.sleep(1)
+   print('Left .3')		 
+   b.sendCMD(MOTORS_LEFT)
+   time.sleep(1)
+   print('Right .3')		 
+   b.sendCMD(MOTORS_RIGHT)
+   time.sleep(1)
+   print('Stop')
+   b.sendCMD(MOTORS_STOP);
+   #get_sound(b)
    b.closeConnection()
    print('Called close')
    b.exitLibrary()

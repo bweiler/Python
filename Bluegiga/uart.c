@@ -37,6 +37,7 @@
 
 HANDLE serial_handle;
 
+
 void uart_list_devices()
 {
     char name[]="Bluegiga Bluetooth Low Energy";
@@ -153,13 +154,15 @@ int uart_open(char *port)
 {
     char str[20];
 
+
     snprintf(str,sizeof(str)-1,"\\\\.\\%s",port);
     serial_handle = CreateFileA(str,
             					GENERIC_READ | GENERIC_WRITE,
           					    FILE_SHARE_READ|FILE_SHARE_WRITE,
          					    NULL,
          					    OPEN_EXISTING,
-           					    0,//FILE_FLAG_OVERLAPPED,
+           					    FILE_FLAG_NO_BUFFERING|FILE_FLAG_WRITE_THROUGH
+								,//FILE_FLAG_OVERLAPPED,
           					    NULL);
 
 
@@ -178,7 +181,7 @@ void uart_close()
 int uart_tx(int len,unsigned char *data)
 {
     DWORD r,written;
-    while(len)
+	while(len)
     {
 
         r=WriteFile (serial_handle,
@@ -194,9 +197,11 @@ int uart_tx(int len,unsigned char *data)
         len-=written;
         data+=len;
     }
+    FlushFileBuffers(serial_handle);
 
     return 0;
 }
+
 int uart_rx(int len,unsigned char *data,int timeout_ms)
 {
     int l=len;

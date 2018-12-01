@@ -276,11 +276,13 @@ static PyObject *openConnection(PyObject *self, PyObject *args)
 			
     hThread = CreateThread( 
             NULL,                   // default security attributes
+			
             0,                      // use default stack size  
             BLED112_Pump,       // thread function name
             NULL,          // argument to thread function 
             0,                      // use default creation flags 
             &dwThreadIdArray);   // returns the thread identifier 
+	SetThreadPriority(hThread,THREAD_PRIORITY_ABOVE_NORMAL);
 
 	sts = 0;
 
