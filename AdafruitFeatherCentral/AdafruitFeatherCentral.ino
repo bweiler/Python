@@ -1,7 +1,22 @@
-
+/* Adafruit Feather nRF52 nRF52832
+ *  
+ * You have to go on Adafruit's site and load their JSON file into Arduino to load their library.
+ * 
+ * Then just load this Arduino code on the dongle and your good to go! 
+ */
 #include <bluefruit.h>
 
-//COMMAND SET FOR BLE
+//This are packet tag bytes sent from host
+//They are the first byte read from serial (at offset 0)
+//currently just CMD and DATA4 are used
+#define CMD    0
+#define DATA1  1
+#define DATA2  2
+#define DATA4  3
+#define DATA20 4
+#define STR    5
+
+//COMMAND SET FOR SKOOBOT
 #define MOTORS_RIGHT_30     0x08
 #define MOTORS_LEFT_30      0x09
 #define MOTORS_RIGHT        0x10
@@ -36,6 +51,7 @@ uint8_t SKOOBOT_DATA2_UUID_128[] = { 0x23, 0xD1, 0xBC, 0xEA, 0x5F, 0x78, 0x23, 0
 uint8_t SKOOBOT_DATA4_UUID_128[] = { 0x23, 0xD1, 0xBC, 0xEA, 0x5F, 0x78, 0x23, 0x15, 0xDE, 0xEF, 0x12, 0x12, 0x28, 0x15, 0x00, 0x00 };
 uint8_t SKOOBOT_COMPLETE_LOCAL_NAME[] =  {'S','k','o','o','b','o','t' };  
 
+//Put function prototypes here but Arduino doesn't need them
 void scan_callback(ble_gap_evt_adv_report_t* report);
 void connect_callback(uint16_t conn_handle);
 void skoobot_data_notify_callback(BLEClientCharacteristic* chr, uint8_t* data, uint16_t len);
@@ -54,13 +70,14 @@ uint8_t notify_result = 0;
 
 void setup()
 {
+  //Python will talk to Feather over serial
   Serial.begin(115200);
   // Initialize Bluefruit with maximum connections as Peripheral = 0, Central = 1
   // SRAM usage required by SoftDevice will increase dramatically with number of connections
   
   Bluefruit.begin(0, 1);
 
-  Bluefruit.setName("Skoobot Central");
+  Bluefruit.setName("Skoobot Central"); //This is Feather's name
 
   // Initialize  client
   skoobot_svc.begin();
@@ -72,11 +89,14 @@ void setup()
   skoobot_data.setNotifyCallback(skoobot_data_notify_callback);
   skoobot_data.begin();
   
-  // set up callback for receiving 20 byte packets
+  // set up callback for receiving 20 byte packets, sound file
   skoobot_data20.setNotifyCallback(skoobot_data_notify20_callback);
   skoobot_data20.begin();
 
+  // set up callback for receiving 2 byte packets of ambient light in LUX
+  skoobot_data2.setNotifyCallback(skoobot_data_notify2_callback);
   skoobot_data2.begin();
+  
   skoobot_data4.begin();
   
   // Increase Blink rate to different from PrPh advertising mode
@@ -88,9 +108,6 @@ void setup()
   Bluefruit.Central.setConnectCallback(connect_callback);
   /* Start Central Scanning
    * - Enable auto scan if disconnected
-   * - Interval = 100 ms, window = 80 ms
-   * - Don't use active scan
-   * - Filter only accept Skoobot service
    * - Start(timeout) with timeout = 0 will scan forever (until connected)
    */
   Bluefruit.Scanner.setRxCallback(scan_callback);
@@ -101,20 +118,28 @@ void setup()
   Bluefruit.Scanner.start(0);                   // // 0 = Don't stop scanning after n seconds
 }
 
-//When powered up this code connects to Skoobot immediately
+//When powered up setup() connects to Skoobot immediately, then loop() watches for commands over serial
 void loop()
 {
   if (connected_and_ready == 1)
   {
-      //This loop for recieving command on serial and then sending over BLE
-      if (Serial.available() > 0) {
+      //This loop for recieving command on serial and then sending over BLE to Skoobot
+      if (Serial.available() > 0) 
+      {
         // read the incoming byte:
         Serial.readBytes(sendbytes,1);
-        if (sendbytes[0] != 0) 
+        if (sendbytes[0] == CMD)
         {
-          notify_result = sendbytes[0];
-          skoobot_cmd.write8(sendbytes[0]);        
-        }
+           Serial.readBytes(sendbytes,1);
+           notify_result = sendbytes[0]; //only used to tag distance or ambient
+           skoobot_cmd.write8(sendbytes[0]);
+        }        
+        if (sendbytes[0] == DATA4)      //currently only setting speed is a 4 byte command
+        {
+           Serial.readBytes(sendbytes,4);
+           notify_result = sendbytes[0]; //tag it here, but only distance or ambient are recognized
+           skoobot_data4.write(sendbytes,4);
+        }        
       }
   }
   else
@@ -126,12 +151,11 @@ void loop()
 
 /**
  * Callback invoked when scanner pick up an advertising data
- * @param report Structural advertising data
+ * Matches 'Skoobot' BLE name
  */
 void scan_callback(ble_gap_evt_adv_report_t* report)
 { 
-//  Serial.println("");
-//  Serial.println("Scan Callback");
+
 //  printReport( report ); 
   
   /* Choose a peripheral to connect with by searching for an advertisement packet with a 
@@ -161,7 +185,7 @@ void scan_callback(ble_gap_evt_adv_report_t* report)
 
 /**
  * Callback invoked when an connection is established
- * @param conn_handle
+ * Will connect up service and characteristics, turn on notifications
  */
 void connect_callback(uint16_t conn_handle)
 {
@@ -172,9 +196,8 @@ void connect_callback(uint16_t conn_handle)
   // If Skoobot is not found, disconnect and return
   if ( !skoobot_svc.discover(conn_handle) )
   {
-    // disconect since we couldn't find HRM service
+    // disconect since we couldn't find Skoobot service
     Bluefruit.Central.disconnect(conn_handle);
-
     return;
   }
 
@@ -189,6 +212,15 @@ void connect_callback(uint16_t conn_handle)
     // Reaching here means we are ready to go, let's enable notification on distance
     skoobot_data.enableNotify();
   }
+  if ( skoobot_data2.discover() )
+  {
+    // Reaching here means we are ready to go, let's enable notification on ambient
+    skoobot_data2.enableNotify();
+  }
+  if ( !skoobot_data4.discover() )
+  {
+    //Is messed up
+  }
   if ( skoobot_data20.discover() )
   {
     // Reaching here means we are ready to go, let's enable notification on 20 byte
@@ -199,8 +231,6 @@ void connect_callback(uint16_t conn_handle)
 
 /**
  * Callback invoked when a connection is dropped
- * @param conn_handle
- * @param reason
  */
 void disconnect_callback(uint16_t conn_handle, uint8_t reason)
 {
@@ -211,13 +241,7 @@ void disconnect_callback(uint16_t conn_handle, uint8_t reason)
 }
 
 
-/**
- * Hooked callback that triggered when a value is sent from peripheral
- * @param chr   Pointer client characteristic that even occurred,
- *              in this example it should be hrmc
- * @param data  Pointer to received data
- * @param len   Length of received data
- */
+//Used for distance (sound file upload flags currently not used)
 void skoobot_data_notify_callback(BLEClientCharacteristic* chr, uint8_t* data, uint16_t len)
 {
    int res_sent;
@@ -226,11 +250,21 @@ void skoobot_data_notify_callback(BLEClientCharacteristic* chr, uint8_t* data, u
      res_sent = Serial.write(data,len);
 }
 
+//Used for uploading sound file, eventually dft too
 void skoobot_data_notify20_callback(BLEClientCharacteristic* chr, uint8_t* data, uint16_t len)
 {
    int res_sent;
    
    if (len == 20 && notify_result == RECORD_SOUND)
+     res_sent = Serial.write(data,len);
+}
+
+//Used for uploading ambient light value
+void skoobot_data_notify2_callback(BLEClientCharacteristic* chr, uint8_t* data, uint16_t len)
+{
+   int res_sent;
+   
+   if (len == 2 && notify_result == GET_AMBIENT)
      res_sent = Serial.write(data,len);
 }
 
@@ -253,7 +287,7 @@ void printReport( const ble_gap_evt_adv_report_t* report )
   Serial.print( "  scan_rsp: " );
   Serial.println( report->type.scan_response );
   Serial.print( "  type: " );
-  Serial.println( report->type );
+  //Serial.println( report->type. );
   Serial.print( "  dlen: " );
   Serial.println( report->data.len );  
   Serial.print( "  data: " );

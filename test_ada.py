@@ -5,30 +5,39 @@ import matplotlib.pyplot as plt
 #might work to play sound on speaker, sound is raw int16 or maybe .wav file, graphs nice
 import simpleaudio as sa
 
-MOTORS_RIGHT_30 	= b'\x08'
-MOTORS_LEFT_30      = b'\x09'
-MOTORS_RIGHT        = b'\x10'
-MOTORS_LEFT         = b'\x11'
-MOTORS_FORWARD      = b'\x12'
-MOTORS_BACKWARD     = b'\x13'
-MOTORS_STOP         = b'\x14'
-STOP_TURNING        = b'\x15'
-MOTORS_SLEEP        = b'\x16'
-MOTORS_SPEED        = b'\x50'
-PLAY_BUZZER         = b'\x17'
+#these bytes are used to identify the packet type for serial transfer
+#they are always in the first byte, or offset 0. STR is used for text
+CMD    = b'\x00'
+DATA1  = b'\x01'
+DATA2  = b'\x02'
+DATA4  = b'\x03'
+DATA20 = b'\x04'
+STR    = b'\x05'
 
-DEC_STEP_MODE       = b'\x18'
-INC_STEP_MODE       = b'\x19'
-GET_AMBIENT         = b'\x21'
-GET_DISTANCE        = b'\x22'
-CONNECT_DISCONNECT  = b'\x23'
-RECORD_SOUND        = b'\x30'
+MOTORS_RIGHT_30 	= b'\x00\x08'
+MOTORS_LEFT_30      = b'\x00\x09'
+MOTORS_RIGHT        = b'\x00\x10'
+MOTORS_LEFT         = b'\x00\x11'
+MOTORS_FORWARD      = b'\x00\x12'
+MOTORS_BACKWARD     = b'\x00\x13'
+MOTORS_STOP         = b'\x00\x14'
+STOP_TURNING        = b'\x00\x15'
+MOTORS_SLEEP        = b'\x00\x16'
+MOTORS_SPEED        = b'\x03\x50\x00\x00\x00'
+PLAY_BUZZER         = b'\x00\x17'
+
+DEC_STEP_MODE       = b'\x00\x18'
+INC_STEP_MODE       = b'\x00\x19'
+GET_AMBIENT         = b'\x00\x21'
+GET_DISTANCE        = b'\x00\x22'
+CONNECT_DISCONNECT  = b'\x00\x23'
+RECORD_SOUND        = b'\x00\x30'
 INCREASE_GAIN       = b'\x31'
 DECREASE_GAIN       = b'\x32'
 RECORD_SOUND_PI     = b'\x33'
-ROVER_MODE          = b'\x40'
-FOTOV_MODE          = b'\x41'
-ROVER_MODE_REV      = b'\x42'
+ROVER_MODE          = b'\x00\x40'
+FOTOV_MODE          = b'\x00\x41'
+ROVER_MODE_REV      = b'\x00\x42'
 
 #these addresses aren't used
 #addr0 = 'dd:45:d3:20:c8:1b'
@@ -54,11 +63,22 @@ def ambient_measure():
    ser.write(GET_AMBIENT);   
    outs = 0
    while True:
-     outs = ser.read(1)
-     if len(outs) == 1:
+     outs = ser.read(2)
+     if len(outs) == 2:
        break
    return outs
- 
+
+def change_speed(newspeed):
+   new_speed = newspeed.to_bytes(2, byteorder='big', signed=False)
+   motors_speed = b""
+   motors_speed += b'\x03'
+   motors_speed += b'\x50'
+   motors_speed += new_speed
+   motors_speed += b'\x00'
+   print('motor cmd ' + str(motors_speed))
+   ser.write(motors_speed);   
+   time.sleep(0.1)
+   
 #The timings are kind of tough to get right and your robot may vary 
 def get_sound():
    ser.write(RECORD_SOUND);   
@@ -88,6 +108,23 @@ def get_sound():
    plt.plot(x, datas)
    plt.show()
 
+def move_square(dis_time):
+   cnter = 0
+   print('Forward ' + str(dis_time*3.0))		 
+   ser.write(MOTORS_FORWARD)
+   time.sleep(dis_time*3.0)
+   for cnter in range(3):
+     #draw out square  
+     print('Left ' + str(dis_time))		 
+     ser.write(MOTORS_LEFT)
+     time.sleep(dis_time)
+     print('Forward ' + str(dis_time*3.0))		 
+     ser.write(STOP_TURNING)
+     time.sleep(dis_time*3.0)
+
+   print('Stop')		 
+   ser.write(MOTORS_STOP)
+   time.sleep(dis_time)
 
 ser = serial.Serial(
     port=comport,
@@ -116,44 +153,23 @@ while ser.is_open == False:
 #this is a rough timer for the Skoobot serial port to get ready
 time.sleep(5)
 
-print('Get sound')
-get_sound()
+#print('Get sound')
+#get_sound()
 print('Buzzer')	
-cnt = 0	 
-#play buzzer 10 times and see if evenly spaced beeps to test interface for timing
-while cnt < 10:
+#play buzzer many times and see if evenly spaced beeps to test interface for timing
+for cnt in range(5):
    ser.write(PLAY_BUZZER)
    time.sleep(0.5)
-   cnt += 1
-  
-#draw out square  
-print('Forward .6')		 
-ser.write(MOTORS_FORWARD)
-time.sleep(0.600)
-print('Left .3')		 
-ser.write(MOTORS_LEFT)
-time.sleep(0.300)
-print('Forward .6')		 
-ser.write(STOP_TURNING)
-time.sleep(0.600)
-print('Left .3')		 
-ser.write(MOTORS_LEFT)
-time.sleep(0.300)
-print('Forward .6')		 
-ser.write(STOP_TURNING)
-time.sleep(0.600)
-print('Left .3')		 
-ser.write(MOTORS_LEFT)
-time.sleep(0.300)
-print('Forward .6')		 
-ser.write(STOP_TURNING)
-time.sleep(0.600)
-print('Left .3')		 
-ser.write(MOTORS_LEFT)
-time.sleep(0.300)
-print('Stop')		 
-ser.write(MOTORS_STOP)
-time.sleep(0.300)
+print('Square')
+move_square(0.400)
+#set speed to 2000 from default of 1000
+change_speed(2000)
+print('Square twice as fast')
+move_square(0.400)
+
+change_speed(1000)
+time.sleep(0.5)
+
 ser.close()
 print('Exit')
   
